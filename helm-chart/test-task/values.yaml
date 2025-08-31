@@ -128,3 +128,34 @@ postgresql_backup:
       claimName: ""
   retentionDays: 7
 
+questdb_backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  suspend: false
+  image:
+    repository: questdb/questdb
+    tag: "8.1.1"
+    pullPolicy: IfNotPresent
+  restartPolicy: OnFailure
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  backoffLimit: 3
+  activeDeadlineSeconds: 3600  # 1 hour timeout
+  ttlSecondsAfterFinished: 86400  # 24 hours
+  storage:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
