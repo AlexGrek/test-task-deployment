@@ -1,0 +1,71 @@
+{{- if .Values.postgresql_backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "test-task.fullname" . }}-postgresql_backup
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.postgresql_backup.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "test-task.labels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: pg-backup
+            image: {{ .Values.postgresql_backup.image }}
+            env:
+              - name: PGHOST
+                value: {{ default (printf "%s-postgresql" (include "test-task.fullname" .)) .Values.postgresql_backup.db.host }}
+              - name: PGUSER
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ default (printf "%s-postgresql" (include "test-task.fullname" .)) .Values.postgresql_backup.db.secretName }}
+                    key: {{ .Values.postgresql_backup.db.usernameKey }}
+              - name: PGPASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ default (printf "%s-postgresql" (include "test-task.fullname" .)) .Values.postgresql_backup.db.secretName }}
+                    key: {{ .Values.postgresql_backup.db.passwordKey }}
+            command:
+              - /bin/sh
+              - -c
+              - |
+                set -e
+                TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
+                BACKUP_FILE="/tmp/db-$TIMESTAMP.sql"
+
+                echo "Running pg_dumpall..."
+                pg_dumpall -U "$PGUSER" -h "$PGHOST" > "$BACKUP_FILE"
+
+                {{- if eq .Values.postgresql_backup.storage.type "s3" }}
+                echo "Uploading to S3..."
+                apt-get update && apt-get install -y awscli
+                aws s3 cp "$BACKUP_FILE" {{ .Values.postgresql_backup.storage.s3.bucket }}/db-$TIMESTAMP.sql \
+                  --region {{ .Values.postgresql_backup.storage.s3.region }}
+                {{- else if eq .Values.postgresql_backup.storage.type "pvc" }}
+                echo "Copying to PVC..."
+                cp "$BACKUP_FILE" /backup/
+                find /backup/ -type f -mtime +{{ .Values.postgresql_backup.retentionDays }} -delete
+                {{- end }}
+            volumeMounts:
+              {{- if eq .Values.postgresql_backup.storage.type "pvc" }}
+              - name: backup-storage
+                mountPath: /backup
+              {{- end }}
+          volumes:
+            {{- if eq .Values.postgresql_backup.storage.type "pvc" }}
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: {{ .Values.postgresql_backup.storage.pvc.claimName }}
+            {{- end }}
+          {{- if eq .Values.postgresql_backup.storage.type "s3" }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.postgresql_backup.storage.s3.secretName }}
+          {{- end }}
+{{- end }}

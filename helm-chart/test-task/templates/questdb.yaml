@@ -1,0 +1,149 @@
+{{- if .Values.questdb.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "test-task.fullname" . }}-questdb
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+    app.kubernetes.io/component: questdb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "test-task.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: questdb
+  template:
+    metadata:
+      labels:
+        {{- include "test-task.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: questdb
+    spec:
+      containers:
+        - name: questdb
+          image: questdb/questdb:8.1.1
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+            - name: pg-wire
+              containerPort: 8812
+              protocol: TCP
+            - name: ilp
+              containerPort: 9009
+              protocol: TCP
+            - name: ilp-tls
+              containerPort: 9010
+              protocol: TCP
+          {{- if .Values.questdb.auth.enabled }}
+          env:
+            - name: QDB_PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-questdb
+                  key: username
+            - name: QDB_PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-questdb
+                  key: password
+            - name: QDB_HTTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-questdb
+                  key: username
+            - name: QDB_HTTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-questdb
+                  key: password
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          {{- if .Values.questdb.persistence.enabled }}
+          volumeMounts:
+            - name: questdb-data
+              mountPath: /var/lib/questdb
+          {{- end }}
+      {{- with .Values.questdb.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.questdb.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.questdb.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.questdb.persistence.enabled }}
+      volumes:
+        - name: questdb-data
+          persistentVolumeClaim:
+            claimName: {{ include "test-task.fullname" . }}-questdb-pvc
+      {{- end }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "test-task.fullname" . }}-questdb
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+    app.kubernetes.io/component: questdb
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 8812
+      targetPort: pg-wire
+      protocol: TCP
+      name: pg-wire
+    - port: 9009
+      targetPort: ilp
+      protocol: TCP
+      name: ilp
+    - port: 9010
+      targetPort: ilp-tls
+      protocol: TCP
+      name: ilp-tls
+  selector:
+    {{- include "test-task.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: questdb
+
+{{- if .Values.questdb.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "test-task.fullname" . }}-questdb-pvc
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+    app.kubernetes.io/component: questdb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.questdb.persistence.size }}
+{{- end }}
+{{- end }}

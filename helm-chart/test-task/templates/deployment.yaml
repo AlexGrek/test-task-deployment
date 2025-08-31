@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "test-task.fullname" . }}
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "test-task.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "test-task.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "test-task.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          env:
+            - name: REDIS_HOST
+              value: {{ include "test-task.fullname" . }}-redis-master
+            - name: REDIS_PORT
+              value: "6379"
+            {{- if .Values.redis.auth.enabled }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-redis
+                  key: redis-password
+            {{- end }}
+            {{- if .Values.postgresql.enabled }}
+            - name: POSTGRES_HOST
+              value: {{ include "test-task.fullname" . }}-postgresql
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.auth.database }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-postgresql
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-postgresql
+                  key: password
+            {{- end }}
+            {{- if .Values.questdb.enabled }}
+            - name: QUESTDB_HTTP_HOST
+              value: {{ include "test-task.fullname" . }}-questdb
+            - name: QUESTDB_HTTP_PORT
+              value: "9000"
+            - name: QUESTDB_PG_HOST
+              value: {{ include "test-task.fullname" . }}-questdb
+            - name: QUESTDB_PG_PORT
+              value: "8812"
+            - name: QUESTDB_ILP_HOST
+              value: {{ include "test-task.fullname" . }}-questdb
+            - name: QUESTDB_ILP_PORT
+              value: "9009"
+            {{- if .Values.questdb.auth.enabled }}
+            - name: QUESTDB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-questdb
+                  key: username
+            - name: QUESTDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-questdb
+                  key: password
+            {{- end }}
+            {{- end }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

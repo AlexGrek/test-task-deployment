@@ -1,0 +1,130 @@
+replicaCount: 1
+
+fullnameOverride: "test-task"
+
+image:
+  repository: registry:5000/dummy-dotnet-app
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+volumes: []
+volumeMounts: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: "defaultpassword"
+  architecture: standalone
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: "defaultpostgrespassword"
+    username: "appuser"
+    password: "defaultapppassword"
+    database: "appdb"
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+questdb:
+  enabled: true
+  auth:
+    enabled: true
+    username: "admin"
+    password: "defaultquestpassword"
+  persistence:
+    enabled: true
+    size: 8Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+postgresql_backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  image: postgres:15  # TODO: change to custom backup image, does not need full postgres here
+  db:
+    host: ""
+    secretName: ""
+    usernameKey: "username"
+    passwordKey: "password"
+  storage:
+    type: s3
+    s3:
+      bucket: "s3://my-postgres-backups"
+      region: "us-east-1"
+      secretName: "s3-credentials"  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+    pvc:
+      claimName: ""
+  retentionDays: 7
+
