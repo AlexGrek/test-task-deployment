@@ -89,3 +89,41 @@ spec:
             claimName: {{ include "test-task.fullname" . }}-postgresql-pvc
       {{- end }}
 {{- end }}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "test-task.fullname" . }}-postgresql
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgresql
+      protocol: TCP
+      name: postgresql
+  selector:
+    {{- include "test-task.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+
+{{- if .Values.postgresql.primary.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "test-task.fullname" . }}-postgresql-pvc
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.primary.persistence.size }}
+{{- end }}
+{{- end }}

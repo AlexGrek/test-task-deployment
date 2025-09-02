@@ -1,0 +1,166 @@
+{{- if and .Values.questdb.enabled .Values.questdb_backup.enabled }}
+{{- if .Values.questdb_backup.storage.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "test-task.fullname" . }}-questdb-backup-pvc
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+    app.kubernetes.io/component: questdb-backup
+spec:
+  accessModes:
+    - {{ .Values.questdb_backup.storage.accessMode }}
+  {{- if .Values.questdb_backup.storage.storageClass }}
+  storageClassName: {{ .Values.questdb_backup.storage.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.questdb_backup.storage.size }}
+
+---
+
+{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "test-task.fullname" . }}-questdb-backup
+  labels:
+    {{- include "test-task.labels" . | nindent 4 }}
+    app.kubernetes.io/component: questdb-backup
+spec:
+  schedule: {{ .Values.questdb_backup.schedule | quote }}
+  suspend: {{ .Values.questdb_backup.suspend }}
+  concurrencyPolicy: {{ .Values.questdb_backup.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.questdb_backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.questdb_backup.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.questdb_backup.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.questdb_backup.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.questdb_backup.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            {{- include "test-task.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: questdb-backup
+        spec:
+          restartPolicy: {{ .Values.questdb_backup.restartPolicy }}
+          containers:
+          - name: questdb-backup
+            image: "{{ .Values.questdb_backup.image.repository }}:{{ .Values.questdb_backup.image.tag }}"
+            imagePullPolicy: {{ .Values.questdb_backup.image.pullPolicy }}
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+              BACKUP_DIR="/backup/questdb_backup_${BACKUP_DATE}"
+              
+              echo "Starting QuestDB backup at $(date)"
+              echo "Backup directory: ${BACKUP_DIR}"
+              
+              # Create backup directory
+              mkdir -p "${BACKUP_DIR}"
+              
+              # Wait for QuestDB to be available
+              echo "Waiting for QuestDB to be available..."
+              until curl -f http://{{ include "test-task.fullname" . }}-questdb:9000/status > /dev/null 2>&1; do
+                echo "QuestDB not ready, waiting..."
+                sleep 5
+              done
+              
+              echo "QuestDB is ready, starting backup..."
+              
+              # Create backup using QuestDB HTTP API
+              curl -G \
+                http://{{ include "test-task.fullname" . }}-questdb:9000/exp \
+                --data-urlencode "query=BACKUP DATABASE" \
+                -o "${BACKUP_DIR}/backup_response.json" || {
+                echo "Backup command failed"
+                exit 1
+              }
+              
+              # Copy database files from QuestDB data volume
+              if [ -d "/questdb-data" ]; then
+                echo "Copying QuestDB data files..."
+                cp -r /questdb-data/* "${BACKUP_DIR}/" || {
+                  echo "Failed to copy QuestDB data files"
+                  exit 1
+                }
+              else
+                echo "Warning: QuestDB data directory not found"
+              fi
+              
+              # Create metadata file
+              cat > "${BACKUP_DIR}/backup_metadata.json" <<EOF
+              {
+                "backup_date": "${BACKUP_DATE}",
+                "questdb_version": "{{ .Values.questdb_backup.image.tag }}",
+                "backup_type": "full",
+                "helm_release": "{{ .Release.Name }}",
+                "namespace": "{{ .Release.Namespace }}"
+              }
+              EOF
+              
+              # Compress backup
+              echo "Compressing backup..."
+              cd /backup
+              tar -czf "questdb_backup_${BACKUP_DATE}.tar.gz" "questdb_backup_${BACKUP_DATE}/"
+              rm -rf "questdb_backup_${BACKUP_DATE}/"
+              
+              echo "Backup completed successfully: questdb_backup_${BACKUP_DATE}.tar.gz"
+              
+              # Clean up old backups (keep last 7 days)
+              find /backup -name "questdb_backup_*.tar.gz" -mtime +7 -delete 2>/dev/null || true
+              
+              echo "Backup process finished at $(date)"
+            env:
+            {{- if .Values.questdb.auth.enabled }}
+            - name: QUESTDB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-questdb
+                  key: username
+            - name: QUESTDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "test-task.fullname" . }}-questdb
+                  key: password
+            {{- end }}
+            resources:
+              {{- toYaml .Values.questdb_backup.resources | nindent 14 }}
+            volumeMounts:
+            {{- if .Values.questdb_backup.storage.enabled }}
+            - name: backup-storage
+              mountPath: /backup
+            {{- end }}
+            {{- if .Values.questdb.persistence.enabled }}
+            - name: questdb-data
+              mountPath: /questdb-data
+              readOnly: true
+            {{- end }}
+          volumes:
+          {{- if .Values.questdb_backup.storage.enabled }}
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: {{ include "test-task.fullname" . }}-questdb-backup-pvc
+          {{- end }}
+          {{- if .Values.questdb.persistence.enabled }}
+          - name: questdb-data
+            persistentVolumeClaim:
+              claimName: {{ include "test-task.fullname" . }}-questdb-pvc
+          {{- end }}
+          {{- with .Values.questdb_backup.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.questdb_backup.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.questdb_backup.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
